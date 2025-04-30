@@ -1,0 +1,239 @@
+MANAGERS:
+// MANAGER REGISTRATION
+- someone can register as a manager; providing name, ssn, and email
+
+// MANAGER LOGIN
+- login system using manager ssn
+
+// CAR MODEL MANAGEMENT 
+
+-- CAR/MODEL INSERTION
+INSERT INTO Car (carid, brand) VALUES
+(caridnum, 'brand')
+INSERT INTO model (color, constructionYear, transmission, modelId, carid) VALUES
+('color', year, 'transmission', modelIdnum, caridNum)
+
+--MODEL REMOVAL:
+DELETE FROM Rent WHERE modelId = <modelId> AND carId = <carId>;
+DELETE FROM drives WHERE modelId = <modelId> AND carId = <carId>;
+DELETE FROM Model WHERE modelId = <modelId> AND carId = <carId>;
+
+-- CAR REMOVAL; MUST REMOVE ALL MODELS FIRST BEFORE REMOVING CAR DO ABOVE FIRST ^^^^^
+DELETE FROM Rent WHERE carId = <carId>;
+DELETE FROM drives WHERE carId = <carId>;
+DELETE FROM Model WHERE carId = <carId>;
+DELETE FROM Car WHERE carId = <carId>;
+
+// DRIVER HIRE/FIRE
+- managers can insert/remove drivers from the system along with their information (name/address)
+
+For inserting, we have to check whether the driver's address already exists in the database:
+INSERT INTO Address (roadName, addressNumber, city) VALUES 
+('**val**', **num**, '**val**')
+then insert the driver
+INSERT INTO Driver (name, addressNumber, roadName, city) VALUES 
+('name', **num**, 'roadName', 'city')
+
+For deleting, don't forget all the associated tables that use driver name as a FK:
+DELETE FROM Rent WHERE name = '**name**'
+DELETE FROM Review WHERE name = '**name**'
+DELETE FROM drives WHERE name = '**name**'
+DELETE FROM Driver WHERE name = '**name**'
+
+// VIEW TOP CLIENTS
+- managers give a number, k, and system should return names and emails of top k clients; determined by
+  # of rents they have booked
+
+SELECT Client.name, Client.email, COUNT(Rent.rentID) AS total_rents
+FROM Client
+JOIN Rent ON Client.email = Rent.email
+GROUP BY Client.name, Client.email
+ORDER BY total_rents DESC
+LIMIT %s -- where %s is k
+
+// LIST POPULAR CAR MODELS
+- managers can generate a list containing every car model and next to it # of rents it has been used
+
+SELECT Model.modelId, Model.carId, Model.color, Car.brand,
+    Model.constructionYear, Model.transmission, COUNT(Rent.rentId) AS times_rented
+FROM Model
+LEFT JOIN Rent ON Model.modelId = Rent.modelId AND Model.carId = Rent.carId
+JOIN Car ON Model.carid = Car.carid
+GROUP BY Model.modelId, Model.carId, Model.color, Model.constructionYear, 
+	Model.transmission, Car.brand
+ORDER BY times_rented DESC;
+
+// LIST ALL DRIVERS AND RATINGS
+- managers can generate a list for every current driver X:
+    name X
+    # of rents that X was the driver and avg rating of X
+
+WITH count_rents AS (
+    SELECT d.name, COUNT(r.rentid) AS total_rents
+    FROM Driver d
+    LEFT JOIN Rent r ON d.name = r.name
+    GROUP BY d.name
+),
+avg_ratings AS (
+    SELECT d.name, ROUND(AVG(rv.rating), 2) AS average_rating
+    FROM Driver d
+    LEFT JOIN Review rv ON d.name = rv.name 
+    GROUP BY d.name
+)
+
+SELECT cr.name, cr.total_rents, COALESCE(ar.average_rating, 0) AS average_rating
+FROM count_rents cr
+LEFT JOIN avg_ratings ar ON cr.name = ar.name
+ORDER BY cr.total_rents DESC;
+
+// HAS CLIENT FROM CITY C1 BOOKED WITH A DRIVER FROM CITY C2
+- manager can give input city C1 and city C2 and system should return name and email of clients who have at least
+  one address from C1 and have booked a rent having a driver with an address from C2
+
+SELECT DISTINCT c.name, c.email
+FROM Client c
+JOIN staysAt s ON c.email = s.email
+-- a1 are the details of the of the client
+JOIN Address a1 ON s.roadName = a1.roadName AND s.addressNumber = a1.addressNumber AND s.city = a1.city
+-- connect clients to which rents they have made
+JOIN Rent r ON c.email = r.email
+-- connected the rent to the driver who fulfilled it
+JOIN Driver d ON r.name = d.name
+-- get details of the driver in a2
+JOIN Address a2 ON d.roadName = a2.roadName AND d.addressNumber = a2.addressNumber AND d.city = a2.city
+-- see if the client's address is equal to the driver's
+WHERE a1.city = 'Riverdale' AND a2.city = 'Riverdale';
+
+DRIVERS:
+// DRIVER LOGIN
+- login with their name
+
+// EDIT PROFILE
+- drivers can change their address if they want
+
+UPDATE driver 
+SET addressnumber = ***, roadname = '***', city = '***'
+WHERE name = '***' 
+
+- drivers should be able to view a list of all car models 
+
+SELECT constructionyear, brand, transmission, color,  model.carid, modelid
+FROM model 
+JOIN car ON model.carid = car.carid
+
+- drivers can declare what car models they can drive 
+
+List out what car models they already drive:
+SELECT name, constructionyear, color, transmission, brand, drives.carid, drives.modelid
+FROM drives
+JOIN model
+ON drives.modelid = model.modelid AND drives.carid = model.carid
+JOIN car
+ON drives.carid = car.carid
+WHERE name = 'Fred Driver'
+
+Declare what models they can drive:
+INSERT INTO drives (name, modelid, carid) VALUES
+('***', ***, ***)
+DELETE FROM drives
+WHERE name = '***' AND modelid = *** AND carid = ***
+
+CLIENTS:
+// CLIENT REGISTRATION
+- clients register with their information (name, email, address)
+    - they insert address(es), credit card(s)
+    - a client might have an address X but some credit card with payment address Y, X and Y can be different
+
+// CLIENT LOGIN
+- clients login with their email
+
+SELECT email FROM client
+
+// LIST OF AVAILABLE CAR MODEL ON DATE
+- clients give an input date D, and see an available list of (current) car models on D.
+    - a car model X is available if:
+        X is not used at another rent on the same date
+        there exists at least one driver R who can drive X 
+        driver R does not drive on another rent that D
+
+WITH available_driver_model_pairs AS (
+  SELECT d.name, d.modelId, d.carId
+  FROM drives d
+  WHERE d.name NOT IN (
+      SELECT r.name
+      FROM Rent r
+      WHERE r.date = '{date_d}'
+  )
+)
+SELECT DISTINCT dmp.modelId, dmp.carId
+FROM available_driver_model_pairs dmp
+ORDER BY dmp.modelId, dmp.carId;
+
+
+// BOOKING SYSTEM ON A DATE
+- clients should be able to book a rent with an available car model on a specific date.
+  the system automatically assigns a random available driver who can drive the requested car model.
+  if there is no available car model on that date, return an error message to user
+
+*** List of names who can drive the car and model id given a specific date ***
+SELECT d.name
+FROM drives d
+WHERE d.modelId = 1 -- change this
+  AND d.carId = 1 -- change this
+  AND d.name NOT IN (
+  SELECT r.name
+  FROM Rent r
+  WHERE r.date = '2025-04-15' -- change this
+);
+
+** then given the list, just insert into rent table using the first person in the list
+
+// BOOKING HISTORY
+- a client should be able to see a list of all rents that the client has booked, along with the car
+  model and assigned driver
+
+SELECT
+    r.rentId,
+    r.date,
+    r.name AS driver_name,
+    m.modelId,
+    m.carId,
+    m.color,
+    m.constructionYear,
+    m.transmission
+FROM Rent r
+JOIN Model m ON r.modelId = m.modelId AND r.carId = m.carId
+WHERE r.email = 'ethan@mail.com' -- change to client's email
+ORDER BY r.date;
+
+// DRIVER REVIEW
+- user should be able to review a driver (that curerently exists in the system). 
+    we need to check: 
+        - has the driver been assigned to a rent booked by the client? if not, do NOT allow to review
+
+** Check if client has rented with driver, if it returns something then that means they booked with them
+SELECT *
+FROM Rent r
+WHERE r.email = 'charlie@mail.com' -- change this to client email
+  AND r.name = 'Luna Drive' -- change to driver name
+LIMIT 1;
+
+** then we can insert
+INSERT INTO Review (reviewId, name, rating, message, email)
+VALUES (num, 'drivername', ratingnum, 'message', 'clientemail');
+
+
+# # for retrieving info using sql query:
+# sql_context ="""
+# select 
+#     *
+# from 
+#     hackathon
+# """
+# cursor.execute(sql_context)
+
+# # Fetch all rows from database
+# record = cursor.fetchall()
+
+# for rec in record:
+#     print(rec)
